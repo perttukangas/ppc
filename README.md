@@ -1,2 +1,0 @@
-# ppc
-Programming Parallel Computers
