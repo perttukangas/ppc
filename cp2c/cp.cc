@@ -15,10 +15,10 @@ This is the function you need to implement. Quick reference:
 */
 void correlate(int ny, int nx, const float *data, float *result)
 {
-  constexpr int block_size = 4;
-  int block_amount = (nx + block_size - 1) / block_size;
+  constexpr int elements_per_vector = 4;
+  int vectors_per_row = (nx + elements_per_vector - 1) / elements_per_vector;
 
-  vector<double4_t> diffs(ny * block_amount);
+  vector<double4_t> diffs(ny * vectors_per_row);
   vector<double> diffs_sqrt(ny, 0.0);
 
   // precompute all whats possible
@@ -32,20 +32,20 @@ void correlate(int ny, int nx, const float *data, float *result)
     mean /= nx;
 
     double sum = 0.0;
-    for (int block = 0; block < block_amount; ++block)
+    for (int vector = 0; vector < vectors_per_row; ++vector)
     {
       double4_t diff_block = {0.0, 0.0, 0.0, 0.0};
-      for (int i = 0; i < block_size; ++i)
+      for (int vector_i = 0; vector_i < elements_per_vector; ++vector_i)
       {
-        int x = block * block_size + i;
+        int x = vector * elements_per_vector + vector_i;
         if (x < nx)
         {
           double diff = data[x + y * nx] - mean;
-          diff_block[i] = diff;
+          diff_block[vector_i] = diff;
           sum += diff * diff;
         }
       }
-      diffs[block + y * block_amount] = diff_block;
+      diffs[vector + y * vectors_per_row] = diff_block;
     }
 
     diffs_sqrt[y] = sqrt(sum);
@@ -55,15 +55,15 @@ void correlate(int ny, int nx, const float *data, float *result)
   {
     for (int j = 0; j <= i; ++j)
     {
-      double4_t block = {0.0, 0.0, 0.0, 0.0};
-      for (int current_block = 0; current_block < block_amount; ++current_block)
+      double4_t vector = {0.0, 0.0, 0.0, 0.0};
+      for (int current_vector = 0; current_vector < vectors_per_row; ++current_vector)
       {
-        block +=
-            diffs[i * block_amount + current_block] *
-            diffs[j * block_amount + current_block];
+        vector +=
+            diffs[i * vectors_per_row + current_vector] *
+            diffs[j * vectors_per_row + current_vector];
       }
 
-      double top = (block[0] + block[1]) + (block[2] + block[3]);
+      double top = (vector[0] + vector[1]) + (vector[2] + vector[3]);
       double bottom = diffs_sqrt[i] * diffs_sqrt[j];
       result[i + j * ny] = bottom != 0.0 ? static_cast<float>(top / bottom) : 0.0f;
     }
