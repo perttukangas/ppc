@@ -1,0 +1,2 @@
+timeout 0.8
+random 1783 rand
