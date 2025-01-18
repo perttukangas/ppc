@@ -19,6 +19,11 @@ static inline int divup(int a, int b)
   return (a + b - 1) / b;
 }
 
+inline int static roundup(int a, int b)
+{
+  return divup(a, b) * b;
+}
+
 __global__ void precompute(int ny, int nx, const float *data, float *diffs)
 {
   int y = blockIdx.x * blockDim.x + threadIdx.x;
@@ -38,56 +43,59 @@ __global__ void precompute(int ny, int nx, const float *data, float *diffs)
   for (int x = 0; x < nx; ++x)
   {
     float diff = data[x + y * nx] - mean;
-    diffs[x + y * nx] = diff;
+    diffs[y + x * ny] = diff;
     sum += diff * diff;
   }
 
   for (int x = 0; x < nx; ++x)
   {
-    diffs[x + y * nx] /= sqrt(sum);
+    diffs[y + x * ny] /= sqrt(sum);
   }
 }
 
 __global__ void compute(int ny, int nx, float *diffs, float *result)
 {
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int j = blockIdx.y * blockDim.y + threadIdx.y;
+  int ia = threadIdx.x;
+  int ja = threadIdx.y;
+  int ic = blockIdx.x;
+  int jc = blockIdx.y;
 
-  if (i >= ny || j > i)
+  float sums[8][8] = {0};
+
+  for (int k = 0; k < nx; ++k)
   {
-    return;
-  }
-
-  float sum[8][8] = {0};
-
-  for (int x = 0; x < nx; ++x)
-  {
-    for (int ii = 0; ii < 8; ++ii)
+    float x[8];
+    float y[8];
+    for (int ib = 0; ib < 8; ++ib)
     {
-      for (int jj = 0; jj < 8; ++jj)
+      int i = ic * 64 + ib * 8 + ia;
+      x[ib] = diffs[ny * k + i];
+      for (int jb = 0; jb < 8; ++jb)
       {
-        int iii = i * 8 + ii;
-        int jjj = j * 8 + jj;
-        if (iii >= ny || jjj > iii)
-        {
-          continue;
-        }
-        sum[ii][jj] += diffs[x + iii * nx] * diffs[x + jjj * nx];
+        int j = jc * 64 + jb * 8 + ja;
+        y[jb] = diffs[ny * k + j];
+      }
+    }
+
+    for (int ib = 0; ib < 8; ++ib)
+    {
+      for (int jb = 0; jb < 8; ++jb)
+      {
+        sums[ib][jb] += x[ib] * y[jb];
       }
     }
   }
 
-  for (int ii = 0; ii < 8; ++ii)
+  for (int ib = 0; ib < 8; ++ib)
   {
-    for (int jj = 0; jj < 8; ++jj)
+    for (int jb = 0; jb < 8; ++jb)
     {
-      int iii = i * 8 + ii;
-      int jjj = j * 8 + jj;
-      if (iii >= ny || jjj > iii)
+      int i = ic * 64 + ib * 8 + ia;
+      int j = jc * 64 + jb * 8 + ja;
+      if (i < ny && j < ny)
       {
-        continue;
+        result[i + j * ny] = sums[ib][jb];
       }
-      result[iii + jjj * ny] = sum[ii][jj];
     }
   }
 }
@@ -105,8 +113,7 @@ void correlate(int ny, int nx, const float *data, float *result)
   float *d_data, *d_result, *d_diffs;
 
   constexpr int block_size = 8;
-  int blocks_of_rows = divup(ny, block_size);
-  int rows_after_padding = blocks_of_rows * block_size;
+  int rows_after_padding = roundup(ny, block_size * block_size);
 
   size_t data_size = ny * nx * sizeof(float);
   size_t result_size = ny * ny * sizeof(float);
@@ -123,7 +130,7 @@ void correlate(int ny, int nx, const float *data, float *result)
   CHECK(cudaMemcpy(d_data, data, data_size, cudaMemcpyHostToDevice));
 
   {
-    dim3 dim_block(32);
+    dim3 dim_block(64);
     dim3 dim_grid(divup(ny, dim_block.x));
     precompute<<<dim_grid, dim_block>>>(ny, nx, d_data, d_diffs);
     CHECK(cudaGetLastError());
@@ -131,7 +138,7 @@ void correlate(int ny, int nx, const float *data, float *result)
 
   {
     dim3 dim_block(block_size, block_size);
-    dim3 dim_grid(divup(blocks_of_rows, dim_block.x), divup(blocks_of_rows, dim_block.y));
+    dim3 dim_grid(rows_after_padding / 64, rows_after_padding / 64);
     compute<<<dim_grid, dim_block>>>(ny, nx, d_diffs, d_result);
     CHECK(cudaGetLastError());
   }
