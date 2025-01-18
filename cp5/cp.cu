@@ -58,13 +58,38 @@ __global__ void compute(int ny, int nx, float *diffs, float *result)
     return;
   }
 
-  double sum = 0.0;
+  float sum[8][8] = {0};
+
   for (int x = 0; x < nx; ++x)
   {
-    sum += diffs[x + i * nx] * diffs[x + j * nx];
+    for (int ii = 0; ii < 8; ++ii)
+    {
+      for (int jj = 0; jj < 8; ++jj)
+      {
+        int iii = i * 8 + ii;
+        int jjj = j * 8 + jj;
+        if (iii >= ny || jjj > iii)
+        {
+          continue;
+        }
+        sum[ii][jj] += diffs[x + iii * nx] * diffs[x + jjj * nx];
+      }
+    }
   }
 
-  result[i + j * ny] = sum;
+  for (int ii = 0; ii < 8; ++ii)
+  {
+    for (int jj = 0; jj < 8; ++jj)
+    {
+      int iii = i * 8 + ii;
+      int jjj = j * 8 + jj;
+      if (iii >= ny || jjj > iii)
+      {
+        continue;
+      }
+      result[iii + jjj * ny] = sum[ii][jj];
+    }
+  }
 }
 
 /*
@@ -79,9 +104,13 @@ void correlate(int ny, int nx, const float *data, float *result)
 {
   float *d_data, *d_result, *d_diffs;
 
+  constexpr int block_size = 8;
+  int blocks_of_rows = divup(ny, block_size);
+  int rows_after_padding = blocks_of_rows * block_size;
+
   size_t data_size = ny * nx * sizeof(float);
   size_t result_size = ny * ny * sizeof(float);
-  size_t diffs_size = ny * nx * sizeof(float);
+  size_t diffs_size = rows_after_padding * nx * sizeof(float);
 
   CHECK(cudaMalloc((void **)&d_data, data_size));
   CHECK(cudaMalloc((void **)&d_result, result_size));
@@ -101,8 +130,8 @@ void correlate(int ny, int nx, const float *data, float *result)
   }
 
   {
-    dim3 dim_block(16, 16, 1);
-    dim3 dim_grid(divup(ny, dim_block.x), divup(ny, dim_block.y), 1);
+    dim3 dim_block(block_size, block_size);
+    dim3 dim_grid(divup(blocks_of_rows, dim_block.x), divup(blocks_of_rows, dim_block.y));
     compute<<<dim_grid, dim_block>>>(ny, nx, d_diffs, d_result);
     CHECK(cudaGetLastError());
   }
