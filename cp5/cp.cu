@@ -60,6 +60,11 @@ __global__ void compute(int ny, int nx, float *diffs, float *result)
   int ic = blockIdx.x;
   int jc = blockIdx.y;
 
+  // int i = blockIdx.x * blockDim.x + threadIdx.x;
+  // int j = blockIdx.y * blockDim.y + threadIdx.y;
+  // if (i >= ny || j > i)
+  //   return;
+
   float sums[8][8] = {0};
 
   for (int k = 0; k < nx; ++k)
@@ -70,11 +75,12 @@ __global__ void compute(int ny, int nx, float *diffs, float *result)
     {
       int i = ic * 64 + ib * 8 + ia;
       x[ib] = diffs[ny * k + i];
-      for (int jb = 0; jb < 8; ++jb)
-      {
-        int j = jc * 64 + jb * 8 + ja;
-        y[jb] = diffs[ny * k + j];
-      }
+    }
+
+    for (int jb = 0; jb < 8; ++jb)
+    {
+      int j = jc * 64 + jb * 8 + ja;
+      y[jb] = diffs[ny * k + j];
     }
 
     for (int ib = 0; ib < 8; ++ib)
