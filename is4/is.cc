@@ -31,7 +31,6 @@ static inline double rectSum(
 Result segment(int ny, int nx, const float *data)
 {
     vector<double> sum((ny + 1) * (nx + 1) * 3, 0.0);
-    vector<double> sumSq((ny + 1) * (nx + 1) * 3, 0.0);
 
 #pragma omp for schedule(static, 1)
     for (int c = 0; c < 3; ++c)
@@ -39,28 +38,24 @@ Result segment(int ny, int nx, const float *data)
         for (int y = 0; y < ny; ++y)
         {
             double rowSum = 0.0;
-            double rowSumSq = 0.0;
             for (int x = 0; x < nx; ++x)
             {
                 double val = data[c + 3 * x + 3 * nx * y];
                 rowSum += val;
-                rowSumSq += val * val;
 
                 sum[idx(c, y + 1, x + 1, nx, ny)] = sum[idx(c, y, x + 1, nx, ny)] + rowSum;
-                sumSq[idx(c, y + 1, x + 1, nx, ny)] = sumSq[idx(c, y, x + 1, nx, ny)] + rowSumSq;
             }
         }
     }
 
     // precompute total
-    vector<double> total(3, 0.0), totalSq(3, 0.0);
+    vector<double> total(3, 0.0);
     int n = ny * nx;
 
 #pragma omp for schedule(static, 1)
     for (int c = 0; c < 3; ++c)
     {
         total[c] = rectSum(sum, c, 0, 0, nx, ny, nx, ny);
-        totalSq[c] = rectSum(sumSq, c, 0, 0, nx, ny, nx, ny);
     }
 
     double bestCost = numeric_limits<double>::max();
@@ -91,10 +86,10 @@ Result segment(int ny, int nx, const float *data)
                         for (int c = 0; c < 3; ++c)
                         {
                             double sumIn = rectSum(sum, c, x0, y0, x1, y1, nx, ny);
-                            double sumInSq = rectSum(sumSq, c, x0, y0, x1, y1, nx, ny);
+                            double sumInSq = sumIn * sumIn;
 
                             double sumOut = total[c] - sumIn;
-                            double sumOutSq = totalSq[c] - sumInSq;
+                            double sumOutSq = (total[c] * total[c]) - sumInSq;
 
                             double meanIn = sumIn / insideCount;
                             double meanOut = sumOut / outsideCount;
